@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bread Worksheet</title>
+<style>
+  /* CSS to center align table items */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    border: 2px solid black; /* thicker outer border */
+  }
+
+  th, td {
+    text-align: center;
+    padding: 8px;
+    border: 1px solid black; /* thinner inner border */
+  }
+
+  th {
+    background-color: #f2f2f2;
+  }
+
+  .start-btn {
+    background-color: green;
+    color: white;
+  }
+
+  .pause-btn {
+    background-color: red;
+    color: white;
+  }
+
+  .set-point-input {
+    width: 70px;
+  }
+
+  .highlight {
+    background-color: lightgray; /* highlight color */
+  }
+</style>
+</head>
+<body>
+  <!-- Header Section -->
+  <h1 style="text-align: center;">Bread Worksheet</h1>
+
+  <!-- Date Section -->
+  <div style="text-align: center;">
+    <p>Today's Date (Hejri): <span id="hejriDate"></span></p>
+  </div>
+
+  <!-- Table Section -->
+  <table id="countupTable">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Item</th>
+        <th>Timer</th>
+        <th>Set Point</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      <!-- Rows will be dynamically generated here -->
+    </tbody>
+  </table>
+  <button type="button" id="resetButton" onclick="resetAllTimers()">Reset All Timers</button>
+
+  <script>
+    // Sample data for countdown timers and set points
+    const countdownData = [
+      { item: "Levain Feeding", setPoint: "4:00:00" },
+      { item: "Autolysis", setPoint: "1:00:00" },
+      { item: "Levain Mixing", setPoint: "0:15:00" },
+      { item: "Other ingredients mixing", setPoint: "0:03:00" },
+      { item: "Coil Fold 1", setPoint: "0:30:00" },
+      { item: "Coil Fold 2", setPoint: "0:30:00" },
+      { item: "Coil Fold 3", setPoint: "0:07:00" },
+      { item: "Coil Fold 4", setPoint: "0:30:00" },
+      { item: "Coil Fold 5", setPoint: "0:30:00" },
+      { item: "Coil Fold 6", setPoint: "0:30:00" },
+      { item: "Coil Fold 7", setPoint: "0:30:00" },
+      { item: "Coil Fold 8", setPoint: "3:00:00" },
+      { item: "Fridge Rest", setPoint: "23:59:59" },
+      { item: "Proofing", setPoint: "3:00:00" },
+      { item: "Baking", setPoint: "0:25:00" }
+    ];
+
+    // Object to hold interval references for each timer
+    const intervalRefs = {};
+
+    // Object to hold whether each timer is speaking
+    const speakingStatus = {};
+
+    // Function to dynamically generate rows in the table
+    function generateRows() {
+      const tbody = document.querySelector("#countupTable tbody");
+      countdownData.forEach((item, index) => {
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${index + 1}</td>
+          <td>${item.item}</td>
+          <td><span id="timer_${item.item.replace(/\s/g, '_')}">00:00:00</span></td>
+          <td><input type="text" class="set-point-input" id="setPoint_${item.item.replace(/\s/g, '_')}" value="${item.setPoint}" onchange="updateTimer('${item.item}')"></td>
+          <td>
+            <button id="btn_${item.item.replace(/\s/g, '_')}" class="start-btn" onclick="toggleTimer('${item.item}')">Start</button>
+            <button id="reset_${item.item.replace(/\s/g, '_')}" onclick="resetTimer('${item.item}', this)">Reset</button>
+          </td>
+        `;
+        tbody.appendChild(row);
+      });
+    }
+
+    // Function to reset all timers
+    function resetAllTimers() {
+      Object.keys(intervalRefs).forEach(item => {
+        resetTimer(item);
+      });
+      document.getElementById("resetButton").disabled = true; // Disable the reset button
+    }
+
+    // Function to toggle between starting and pausing a specific timer
+    function toggleTimer(item) {
+      const button = document.getElementById(`btn_${item.replace(/\s/g, '_')}`);
+      const buttonText = button.textContent;
+      const resetButton = document.getElementById(`reset_${item.replace(/\s/g, '_')}`);
+      if (buttonText === "Start") {
+        startTimer(item);
+        button.textContent = "Pause";
+        button.classList.remove("start-btn");
+        button.classList.add("pause-btn");
+        resetButton.disabled = true;
+      } else {
+        pauseTimer(item);
+        button.textContent = "Start";
+        button.classList.remove("pause-btn");
+        button.classList.add("start-btn");
+        resetButton.disabled = false;
+        const nextItemIndex = countdownData.findIndex(data => data.item === item) + 1;
+        if (nextItemIndex < countdownData.length) {
+          const nextItem = countdownData[nextItemIndex].item;
+          confirmNextStep(nextItem);
+        }
+      }
+    }
+
+    // Function to start a specific timer
+    function startTimer(item) {
+      const timerSpan = document.querySelector(`#timer_${item.replace(/\s/g, '_')}`);
+      const setPointInput = document.querySelector(`#setPoint_${item.replace(/\s/g, '_')}`);
+      const setPoint = timeToSeconds(setPointInput.value);
+      let timer = timerSpan.dataset.timer ? parseInt(timerSpan.dataset.timer) : 0; // Continue from the latest timer value
+      intervalRefs[item] = setInterval(() => {
+        timer++;
+        timerSpan.textContent = secondsToTime(timer);
+        timerSpan.dataset.timer = timer.toString(); // Update the dataset
+        // Check if the timer exceeds the set point and speaking is ongoing
+        if (timer === 1) {
+          speakOnce(`${item} started`);
+        }
+        if (timer >= setPoint && !speakingStatus[item]) {
+          speakingStatus[item] = true; // Start speaking for the item
+          speakRepeat("Time is expired for " + item); // Speak the message
+        }
+      }, 1000);
+    }
+
+    // Function to pause a specific timer
+    function pauseTimer(item) {
+      clearInterval(intervalRefs[item]);
+      speakingStatus[item] = false;
+      stopSpeaking(item);
+    }
+
+    // Function to reset a specific timer
+    function resetTimer(item, resetButton) {
+      const confirmation = confirm("Are you sure you want to reset the timer?");
+      if (confirmation) {
+        const timerSpan = document.querySelector(`#timer_${item.replace(/\s/g, '_')}`);
+        clearInterval(intervalRefs[item]);
+        timerSpan.textContent = "00:00:00";
+        timerSpan.dataset.timer = "0"; // Reset the dataset
+        speakingStatus[item] = false;
+        stopSpeaking(item);
+
+        // Check if the next item is running and pause it
+        const nextItemIndex = countdownData.findIndex(data => data.item === item) + 1;
+        if (nextItemIndex < countdownData.length) {
+          const nextItem = countdownData[nextItemIndex].item;
+          clearInterval(intervalRefs[nextItem]);
+          const nextItemButton = document.getElementById(`btn_${nextItem.replace(/\s/g, '_')}`);
+          nextItemButton.textContent = "Start";
+          nextItemButton.classList.remove("pause-btn");
+          nextItemButton.classList.add("start-btn");
+          const nextItemResetButton = document.getElementById(`reset_${nextItem.replace(/\s/g, '_')}`);
+          nextItemResetButton.disabled = false;
+        }
+        resetButton.disabled = true; // Disable the reset button after it's pressed
+      }
+    }
+
+    // Function to convert time in seconds to HH:MM:SS format
+    function secondsToTime(seconds) {
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      const remainingSeconds = seconds % 60;
+      return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+    }
+
+    // Function to convert time in HH:MM:SS format to seconds
+    function timeToSeconds(time) {
+      const [hours, minutes, seconds] = time.split(':').map(parseFloat);
+      return (hours * 3600) + (minutes * 60) + seconds;
+    }
+
+    // Function to update timer when set point changes
+    function updateTimer(item) {
+      const setPointInput = document.querySelector(`#setPoint_${item.replace(/\s/g, '_')}`);
+      const timerSpan = document.querySelector(`#timer_${item.replace(/\s/g, '_')}`);
+      const timer = parseInt(timerSpan.dataset.timer); // Get the timer value from the dataset
+      const setPoint = timeToSeconds(setPointInput.value);
+      // If the timer has passed the set point, reset the speaking status
+      if (timer >= setPoint) {
+        speakingStatus[item] = false;
+      }
+    }
+
+    // Function to speak a message once
+    function speakOnce(message) {
+      const speechSynthesis = window.speechSynthesis;
+      const speechUtterance = new SpeechSynthesisUtterance(message);
+      speechSynthesis.speak(speechUtterance);
+    }
+
+    // Function to speak a message repeatedly
+    function speakRepeat(message) {
+      const speechSynthesis = window.speechSynthesis;
+      const speechUtterance = new SpeechSynthesisUtterance(message);
+      speakingStatus[message] = true;
+      speechUtterance.onend = function() {
+        if (speakingStatus[message]) {
+          window.setTimeout(function() {
+            speechSynthesis.speak(speechUtterance);
+          }, 1000);
+        }
+      };
+      speechSynthesis.speak(speechUtterance);
+    }
+
+    // Function to stop speaking for a specific item
+    function stopSpeaking(item) {
+      const speechSynthesis = window.speechSynthesis;
+      const voices = speechSynthesis.getVoices();
+      speakingStatus[item] = false;
+      speechSynthesis.cancel();
+    }
+
+    // Function to confirm starting the next step
+    function confirmNextStep(nextItem) {
+      const confirmation = confirm(`Do you want to start "${nextItem}"?`);
+      if (confirmation) {
+        toggleTimer(nextItem);
+      }
+    }
+
+    // Function to get today's date in Hejri (Jalali) calendar format
+    function getHejriDate() {
+      // Implementation of Hejri date conversion (you may use a library for this)
+      // For demonstration purpose, I'll simply return a sample date
+      return "1403-01-23";
+    }
+
+    // Call the function to generate rows when the page loads
+    window.onload = function() {
+      generateRows();
+      document.getElementById("hejriDate").textContent = getHejriDate();
+    };
+  </script>
+</body>
+</html>
